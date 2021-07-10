@@ -13,8 +13,9 @@ import os
 import pytz
 from datetime import datetime
 
-output_data = []
+tx_data = []
 crawl_runner = CrawlerRunner()
+
 
 @app.route('/', methods=['GET', 'POST'])
 @app.route('/home', methods=['GET', 'POST'])
@@ -25,26 +26,25 @@ def index_page():
     new_user_account = user_account.user_account()
 
     if form.validate_on_submit():
-        if new_user_account.updateUser(form.ICX_wallet_address.data, network_info[0], day):
+            new_user_account.updateUser(form.ICX_wallet_address.data, day)
             scrape(form.ICX_wallet_address.data)
-            calculate_age()
-            return render_template('index.html', form=form, user=new_user_account, networkInfo=network_info, history=output_data)
+            calculate_tx_age()
+            new_user_account.updateUserClaim(tx_data, network_info[0])
+            return render_template('index.html', form=form, user=new_user_account, networkInfo=network_info, txData=tx_data)
 
     if form.errors != {}:
         for err_msg in form.errors.values():
             flash(f'{err_msg}', category='info')
     return render_template('index.html', form=form, user=new_user_account, networkInfo=network_info)
 
-# crawl_runner = CrawlerRunner(get_project_settings()) if you want to apply settings.py
-
 
 def scrape(wallet_address):
-    output_data.clear()
+    tx_data.clear()
     # run crawler in twisted reactor synchronously
     scrape_with_crochet(address=wallet_address)
     if os.path.exists("outputfile.json"):
         os.remove("outputfile.json")
-    return jsonify(output_data)
+    return jsonify(tx_data)
 
 
 @crochet.wait_for(timeout=60.0)
@@ -58,14 +58,18 @@ def scrape_with_crochet(address):
 
 
 def _crawler_result(item):
-    output_data.append(dict(item))
+    tx_data.append(dict(item))
 
 
-def calculate_age():
-    for i in range(len(output_data)):
-        date_string = output_data[i]["date"]
+def calculate_tx_age():
+    for i in range(len(tx_data)):
+        date_string = tx_data[i]["date"]
         date_object = datetime.strptime(date_string[:19], "%Y-%m-%dT%H:%M:%S")
         age_delta = datetime.utcnow().replace(tzinfo=pytz.utc) - date_object.replace(tzinfo=pytz.utc)
-        age = str(age_delta.days) + " days " + str(int(age_delta.seconds / 3600)) + " hours ago"
-        output_data[i]["date"] = age
+        if int(age_delta.seconds / 3600) <= 1:
+            hourString = " hour"
+        else:
+            hourString = " hours"
+        age = str(age_delta.days) + " days " + str(int(age_delta.seconds / 3600)) + hourString + " ago"
+        tx_data[i]["date"] = age
 
